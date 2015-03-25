@@ -1,0 +1,79 @@
+---
+title: "A function to help checking LM models"
+output: html_document
+---
+
+Even if LM are very simple models at the basis of many more complex ones, LM still have some assumptions that if not met would render any interpretation from the models plainly wrong. In my field of research most people were taught about checking ANOVA assumptions using tests like bartlett & co. This is however not the best way to check if my model meet its assumptions as p-values depend on the sample size, with small sample size we will almost never reject the null hypothesis while with big sample even small deviation will lead to significant p-values ([discussion](http://stats.stackexchange.com/questions/2824/checking-anova-assumptions)). As ANOVA and linear models are two different ways to look at the same model ([explanation](http://www.theanalysisfactor.com/why-anova-and-linear-regression-are-the-same-analysis/)) we can check ANOVA assumptions using graphical check from a linear model. In R this is easily done using *plot(model)*, but people often ask me what amount of deviation makes me reject a model. One easy way to see if the model checking graphs are off the charts is to simulate data from the model, fit the model to these newly simulated data and compare the graphical checks from the simulated data with the real data. If you cannot differentiate between the simulated and the real data then your model is fine, if you can then try again!
+
+Below is a little function that implement this idea:
+
+```{r}
+lm.test<-function(m){
+  require(plyr)
+  #the model frame
+  dat<-model.frame(m)
+  #the model matrix
+  f<-formula(m)
+  modmat<-model.matrix(f,dat)
+  #the standard deviation of the residuals
+  sd.resid<-sd(resid(m))
+  #sample size
+  n<-dim(dat)[1]
+  #get the right-hand side of the formula  
+  #rhs<-all.vars(update(f, 0~.))
+  #simulate 8 response vectors from model
+  ys<-lapply(1:8,function(x) rnorm(n,modmat%*%coef(m),sd.resid))
+  #refit the models
+  ms<-llply(ys,function(y) lm(y~modmat[,-1]))
+  #put the residuals and fitted values in a list
+  df<-llply(ms,function(x) data.frame(Fitted=fitted(x),Resid=resid(x)))
+  #select a random number from 2 to 8
+  rnd<-sample(2:8,1)
+  #put the original data into the list
+  df<-c(df[1:(rnd-1)],list(data.frame(Fitted=fitted(m),Resid=resid(m))),df[rnd:8])
+  
+  #plot 
+  par(mfrow=c(3,3))
+  l_ply(df,function(x){
+    plot(Resid~Fitted,x,xlab="Fitted",ylab="Residuals")
+    abline(h=0,lwd=2,lty=2)
+  })
+
+  l_ply(df,function(x){
+    qqnorm(x$Resid)
+    qqline(x$Resid)
+  })
+  
+  out<-list(Position=rnd)
+  return(out)
+}
+```
+
+This function print the two basic plots: one looking at the spread of the residuals around the fitted values, the other one look at the normality of the residuals.
+The function return the position of the real model in the 3x3 window, counting from left to right and from top to bottom (ie position 1 is upper left graph).
+
+Let's try the function:
+
+```{r fig.width=10,fig.height=10}
+#a simulated data frame of independent variables
+dat<-data.frame(Temp=runif(100,0,20),Treatment=gl(n = 5,k = 20))
+contrasts(dat$Treatment)<-"contr.sum"
+#the model matrix
+modmat<-model.matrix(~Temp*Treatment,data=dat)
+#the coefficient
+coeff<-rnorm(10,0,4)
+#simulate response data
+dat$Biomass<-rnorm(100,modmat%*%coeff,1)
+#the model
+m<-lm(Biomass~Temp*Treatment,dat)
+#model check
+chk<-lm.test(m)
+```
+
+Can you find which one is the real one?
+I could not, here is the answer:
+```{r}
+chk
+```
+
+Happy safe modelling!
